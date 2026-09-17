@@ -66,9 +66,12 @@ else
     exit 1
   fi
 
-  read -r -s -p 'Paste onboarding key (input hidden): ' ONBOARDING_KEY
-  echo
-  [[ "$ONBOARDING_KEY" == O-* ]] || { echo 'Expected an onboarding key beginning with O-' >&2; exit 1; }
+  ONBOARDING_KEY=""
+  while [[ -z "$ONBOARDING_KEY" ]]; do
+    read -r -s -p 'Paste onboarding key (input hidden): ' ONBOARDING_KEY
+    echo
+    [[ -n "$ONBOARDING_KEY" ]] || echo 'This value is required.' >&2
+  done
 
   installer=$(mktemp)
   trap 'rm -f "$installer"' EXIT

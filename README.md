@@ -28,7 +28,7 @@ The script prompts for:
 | --- | --- | --- |
 | Komodo Core address | `https://komodo.example.com` | `http://` or `https://` URL, no trailing slash required |
 | Server name in Komodo | host hostname | How this machine appears in **Komodo > Servers**. Press Enter to keep the hostname |
-| Onboarding key | `O-...` | Input is hidden. Must start with `O-` |
+| Onboarding key | onboarding key from Komodo | Input is hidden |
 
 It then downloads the official installer, asks for confirmation, and starts the `periphery` systemd service.
 
