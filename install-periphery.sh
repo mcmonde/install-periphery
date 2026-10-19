@@ -21,6 +21,70 @@ prompt() {
   printf -v "$var_name" '%s' "$value"
 }
 
+prompt_onboarding_key() {
+  local var_name="$1"
+  local value=""
+  while [[ -z "$value" ]]; do
+    read -r -s -p 'Paste onboarding key (input hidden): ' value
+    echo
+    [[ -n "$value" ]] || echo 'This value is required.' >&2
+  done
+  printf -v "$var_name" '%s' "$value"
+}
+
+run_official_installer() {
+  local installer
+  installer=$(mktemp)
+  trap 'rm -f "$installer"' RETURN
+  curl -fsSL "$INSTALLER_URL" -o "$installer"
+  echo "Official installer downloaded to $installer. Review it before continuing if required."
+  read -r -p 'Execute the downloaded official installer? [y/N] ' confirm
+  [[ "$confirm" =~ ^[Yy]$ ]] || return 1
+  python3 "$installer" "$@"
+}
+
+replace_onboarding_key() {
+  local key="$1"
+  local backup="${CONFIG}.bak"
+
+  cp -a "$CONFIG" "$backup"
+  chmod 600 "$backup"
+  echo "Backed up current config to $backup"
+
+  PERIPHERY_CONFIG="$CONFIG" PERIPHERY_NEW_ONBOARDING_KEY="$key" python3 - <<'PY'
+import os
+import pathlib
+import re
+
+path = pathlib.Path(os.environ["PERIPHERY_CONFIG"])
+key = os.environ["PERIPHERY_NEW_ONBOARDING_KEY"]
+escaped = key.replace("\\", "\\\\").replace('"', '\\"')
+new_line = f'onboarding_key = "{escaped}"'
+text = path.read_text(encoding="utf-8")
+active = re.compile(r"^[ \t]*onboarding_key[ \t]*=[ \t]*.*$", re.M)
+commented = re.compile(r"^[ \t]*#[ \t]*onboarding_key[ \t]*=[ \t]*.*$", re.M)
+
+if active.search(text):
+    text = active.sub(new_line, text, count=1)
+elif commented.search(text):
+    text = commented.sub(new_line, text, count=1)
+else:
+    if text and not text.endswith("\n"):
+        text += "\n"
+    text += new_line + "\n"
+
+path.write_text(text, encoding="utf-8")
+PY
+  unset PERIPHERY_NEW_ONBOARDING_KEY
+  chmod 600 "$CONFIG"
+  echo "Updated onboarding_key in $CONFIG"
+
+  if systemctl show periphery -p Environment --value 2>/dev/null | grep -q 'PERIPHERY_ONBOARDING_KEY='; then
+    echo 'Warning: PERIPHERY_ONBOARDING_KEY is set on the systemd unit and will override the config file.' >&2
+    echo 'Remove or update that Environment value, then run: sudo systemctl daemon-reload' >&2
+  fi
+}
+
 if [[ $EUID -ne 0 ]]; then
   echo 'Run with sudo: sudo bash install-periphery.sh' >&2
   exit 1
@@ -36,14 +100,37 @@ fi
 umask 077
 if [[ -f "$CONFIG" ]]; then
   echo "Existing configuration found at $CONFIG."
-  echo 'The official installer preserves it; this script will NOT overwrite credentials or keys.'
-  echo 'If onboarding failed, inspect the existing config and systemd environment before retrying.'
-  read -r -p 'Run the official installer to update Periphery without changing its configuration? [y/N] ' confirm
-  [[ "$confirm" =~ ^[Yy]$ ]] || exit 0
-  installer=$(mktemp)
-  trap 'rm -f "$installer"' EXIT
-  curl -fsSL "$INSTALLER_URL" -o "$installer"
-  python3 "$installer"
+  echo 'The official installer will not overwrite this file.'
+  echo
+  echo 'Choose an action:'
+  echo '  1) Update Periphery (keep current config)'
+  echo '  2) Replace onboarding key'
+  echo '  3) Update Periphery and replace onboarding key'
+  echo '  4) Cancel'
+  prompt ACTION 'Selection'
+  case "$ACTION" in
+    1)
+      run_official_installer || exit 0
+      ;;
+    2|3)
+      echo
+      echo 'Create or copy an onboarding key in Komodo > Settings > Onboarding.'
+      echo 'If this server is already enrolled, enable Privileged on the key or Core will reject it.'
+      prompt_onboarding_key ONBOARDING_KEY
+      replace_onboarding_key "$ONBOARDING_KEY"
+      unset ONBOARDING_KEY
+      if [[ "$ACTION" == 3 ]]; then
+        run_official_installer || true
+      fi
+      ;;
+    4)
+      exit 0
+      ;;
+    *)
+      echo 'Invalid selection.' >&2
+      exit 1
+      ;;
+  esac
 else
   echo 'Installing a new Komodo Periphery agent.'
   echo 'Create an enabled onboarding key in Komodo > Settings > Onboarding before continuing.'
@@ -66,23 +153,11 @@ else
     exit 1
   fi
 
-  ONBOARDING_KEY=""
-  while [[ -z "$ONBOARDING_KEY" ]]; do
-    read -r -s -p 'Paste onboarding key (input hidden): ' ONBOARDING_KEY
-    echo
-    [[ -n "$ONBOARDING_KEY" ]] || echo 'This value is required.' >&2
-  done
-
-  installer=$(mktemp)
-  trap 'rm -f "$installer"' EXIT
-  curl -fsSL "$INSTALLER_URL" -o "$installer"
-  echo "Official installer downloaded to $installer. Review it before continuing if required."
-  read -r -p 'Execute the downloaded official installer? [y/N] ' confirm
-  [[ "$confirm" =~ ^[Yy]$ ]] || exit 0
-  python3 "$installer" \
+  prompt_onboarding_key ONBOARDING_KEY
+  run_official_installer \
     --core-address="$CORE_ADDRESS" \
     --connect-as="$SERVER_NAME" \
-    --onboarding-key="$ONBOARDING_KEY"
+    --onboarding-key="$ONBOARDING_KEY" || exit 0
   unset ONBOARDING_KEY
 fi
 

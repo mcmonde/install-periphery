@@ -34,7 +34,16 @@ It then downloads the official installer, asks for confirmation, and starts the 
 
 ### Existing install
 
-If `/etc/komodo/periphery.config.toml` already exists, the script will not overwrite credentials or keys. Confirm to run the official installer as an update only.
+If `/etc/komodo/periphery.config.toml` already exists, choose one of:
+
+1. **Update Periphery** — download/install the latest agent, keep the current config
+2. **Replace onboarding key** — write a new `onboarding_key` into the existing config
+3. **Both** — replace the key, then update the agent
+4. **Cancel**
+
+The official installer never overwrites an existing config, so this script edits `onboarding_key` in place. A copy of the previous file is saved as `/etc/komodo/periphery.config.toml.bak`.
+
+For a server that is already enrolled in **Komodo > Servers**, enable **Privileged** on the onboarding key or Core will reject the change. After the key is written, Periphery is restarted.
 
 ## After install
 
